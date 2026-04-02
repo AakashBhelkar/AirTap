@@ -1,0 +1,10 @@
+mediapipe>=0.10.30
+opencv-python>=4.9.0
+pyautogui>=0.9.54
+numpy>=1.26.4
+keyboard>=0.13.5
+PyQt6>=6.6.1
+SpeechRecognition>=3.10.1
+vosk>=0.3.45
+plyer>=2.1.0
+pywin32>=306
