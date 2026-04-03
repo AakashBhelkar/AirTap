@@ -9,20 +9,31 @@ from PyQt6.QtCore import QSize
 
 from mode_manager import Mode
 from settings_ui import SettingsDialog
+from profiles import list_profiles, save_profile, load_profile
 
 # Registry path for Windows auto-start
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _APP_NAME = "AirTap"
 
 
-def _make_tray_icon() -> QIcon:
-    """Generate a simple colored icon (no external file needed)."""
+# Mode → tray icon color (RGB)
+_MODE_ICON_COLORS = {
+    Mode.DAILY: QColor(0, 200, 255),      # cyan
+    Mode.PRESENTATION: QColor(0, 200, 0), # green
+    Mode.MEDIA: QColor(200, 0, 200),      # purple
+    Mode.DISABLED: QColor(220, 0, 0),     # red
+}
+
+
+def _make_tray_icon(mode: Mode = Mode.DAILY) -> QIcon:
+    """Generate a colored icon reflecting the active mode."""
     size = 64
+    color = _MODE_ICON_COLORS.get(mode, QColor(0, 200, 255))
     px = QPixmap(QSize(size, size))
     px.fill(QColor(0, 0, 0, 0))
     p = QPainter(px)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setBrush(QColor(0, 200, 255))
+    p.setBrush(color)
     p.setPen(QColor(255, 255, 255))
     p.drawEllipse(4, 4, size - 8, size - 8)
     p.setPen(QColor(0, 0, 0))
@@ -37,18 +48,22 @@ def _make_tray_icon() -> QIcon:
 class SystemTray:
     """System tray icon with menu for AirTap control."""
 
-    def __init__(self, mode_mgr, on_calibrate, on_quit, on_toggle_overlay):
+    def __init__(self, mode_mgr, on_calibrate, on_quit, on_toggle_overlay, on_tutorial=None):
         self._mode_mgr = mode_mgr
         self._on_calibrate = on_calibrate
         self._on_quit = on_quit
         self._on_toggle_overlay = on_toggle_overlay
+        self._on_tutorial = on_tutorial
 
         self._settings_dialog: SettingsDialog | None = None
 
-        self._tray = QSystemTrayIcon(_make_tray_icon())
+        self._tray = QSystemTrayIcon(_make_tray_icon(mode_mgr.get_mode()))
         self._tray.setToolTip("AirTap — Gesture Controller")
         self._build_menu()
         self._tray.show()
+
+        # Update icon color when mode changes
+        self._mode_mgr.on_mode_switch(self._on_mode_changed)
 
     def _build_menu(self):
         menu = QMenu()
@@ -83,10 +98,20 @@ class SystemTray:
         cal_action.triggered.connect(self._on_calibrate)
         menu.addAction(cal_action)
 
+        # Tutorial
+        if self._on_tutorial:
+            tutorial_action = QAction("Gesture Tutorial...")
+            tutorial_action.triggered.connect(self._on_tutorial)
+            menu.addAction(tutorial_action)
+
         # Settings
         settings_action = QAction("Settings...")
         settings_action.triggered.connect(self._open_settings)
         menu.addAction(settings_action)
+
+        # Profiles submenu
+        self._profiles_menu = menu.addMenu("Profiles")
+        self._rebuild_profiles_menu()
 
         menu.addSeparator()
 
@@ -105,6 +130,43 @@ class SystemTray:
         menu.addAction(quit_action)
 
         self._tray.setContextMenu(menu)
+
+    def _rebuild_profiles_menu(self):
+        """Rebuild the profiles submenu with current saved profiles."""
+        self._profiles_menu.clear()
+
+        # Save current
+        save_act = QAction("Save Current as...")
+        save_act.triggered.connect(self._save_profile_dialog)
+        self._profiles_menu.addAction(save_act)
+        self._profiles_menu.addSeparator()
+
+        # List existing profiles
+        names = list_profiles()
+        if not names:
+            empty = QAction("(no saved profiles)")
+            empty.setEnabled(False)
+            self._profiles_menu.addAction(empty)
+        else:
+            for name in sorted(names):
+                act = QAction(name)
+                act.triggered.connect(lambda checked, n=name: self._load_profile(n))
+                self._profiles_menu.addAction(act)
+
+    def _save_profile_dialog(self):
+        from PyQt6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(None, "Save Profile", "Profile name:")
+        if ok and name.strip():
+            save_profile(name.strip())
+            self._rebuild_profiles_menu()
+
+    def _load_profile(self, name: str):
+        load_profile(name)
+
+    def _on_mode_changed(self, old_mode, new_mode):
+        """Update tray icon color when mode changes."""
+        self._tray.setIcon(_make_tray_icon(new_mode))
+        self._tray.setToolTip(f"AirTap — {new_mode.value}")
 
     def _open_settings(self):
         if self._settings_dialog is None or not self._settings_dialog.isVisible():

@@ -9,3 +9,4 @@ airtap/hand_landmarker.task
 dist/
 build/
 .claude/
+airtap/.airtap_initialized

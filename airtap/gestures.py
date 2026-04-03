@@ -12,6 +12,18 @@ from config import (
 )
 from mode_manager import Mode
 from cursor import CursorController
+from sounds import sound_click, sound_right_click, sound_scroll, sound_action
+
+
+def _get_gesture_map(mode: Mode) -> dict:
+    """Return the gesture-to-action map for the given mode."""
+    if mode == Mode.DAILY:
+        return get_value("GESTURE_MAP_DAILY")
+    elif mode == Mode.PRESENTATION:
+        return get_value("GESTURE_MAP_PRESENTATION")
+    elif mode == Mode.MEDIA:
+        return get_value("GESTURE_MAP_MEDIA")
+    return {}
 
 
 class GestureEngine:
@@ -46,6 +58,9 @@ class GestureEngine:
         # Cursor freeze — after a tap, freeze cursor briefly so it doesn't drift
         self._cursor_frozen_until: float = 0.0
 
+        # Second-hand modifier (shift/ctrl/alt or None)
+        self._modifier: str | None = None
+
     # ------------------------------------------------------------------
     # Main entry — call once per frame
     # ------------------------------------------------------------------
@@ -54,6 +69,9 @@ class GestureEngine:
         """Process one frame. Returns a human-readable action label or None."""
         now = time.time()
         self._history.append((now, state))
+
+        # Track modifier from second hand
+        self._modifier = state.get("modifier")
 
         if not state["detected"]:
             self._reset_holds()
@@ -92,31 +110,45 @@ class GestureEngine:
     # ------------------------------------------------------------------
 
     def _daily(self, state, gesture, nx, ny, now) -> str | None:
+        gmap = _get_gesture_map(Mode.DAILY)
         cursor_frozen = now < self._cursor_frozen_until
 
         # Pointing → move cursor (skip if frozen after a tap)
         if gesture in ("pointing", "idle") and not cursor_frozen:
-            self._cursor.move_cursor(nx, ny)
+            if gmap.get("pointing") == "move_cursor":
+                self._cursor.move_cursor(nx, ny)
             self._last_scroll_y = None
 
         # Tap → left click (only from pointing, cursor freezes to avoid drift)
-        if gesture == "tap":
-            if self._cursor.do_click():
-                self._cursor_frozen_until = now + 0.4  # freeze 400ms after click
+        if gesture == "tap" and gmap.get("tap"):
+            if self._modifier:
+                # Hold modifier key during click (e.g., shift+click, ctrl+click)
+                import pyautogui as _pag
+                _pag.keyDown(self._modifier)
+                clicked = self._cursor.do_click()
+                _pag.keyUp(self._modifier)
+                if clicked:
+                    self._cursor_frozen_until = now + 0.4
+                    sound_click()
+                    return f"{self._modifier.capitalize()}+Click"
+            elif self._cursor.do_click():
+                self._cursor_frozen_until = now + 0.4
+                sound_click()
                 return "Left Click"
 
-        # Pinch held 0.8s → right click
-        if gesture == "pinch":
+        # Pinch held → right click
+        if gesture == "pinch" and gmap.get("pinch"):
             action = self._check_hold("pinch", get_value("HOLD_PINCH_RIGHT_CLICK"), now)
             if action:
                 if self._cursor.do_right_click():
+                    sound_right_click()
                     return "Right Click"
         else:
             if self._hold_gesture == "pinch":
                 self._reset_holds()
 
-        # Two fingers → scroll mode (don't move cursor, just scroll)
-        if gesture == "two_fingers":
+        # Two fingers → scroll
+        if gesture == "two_fingers" and gmap.get("two_fingers"):
             if self._last_scroll_y is not None:
                 delta = ny - self._last_scroll_y
                 if abs(delta) > 0.008:
@@ -129,8 +161,8 @@ class GestureEngine:
             self._last_scroll_y = None
             self._cursor._scroll_accum = 0.0
 
-        # Open palm swipe up → Win+D (show desktop)
-        if gesture == "open_palm":
+        # Open palm swipe up → show desktop
+        if gesture == "open_palm" and gmap.get("open_palm"):
             swipe = self._detect_swipe_vertical()
             if swipe == "up":
                 pyautogui.hotkey("win", "d", _pause=False)
@@ -143,21 +175,24 @@ class GestureEngine:
     # ------------------------------------------------------------------
 
     def _presentation(self, state, gesture, nx, ny, now) -> str | None:
+        gmap = _get_gesture_map(Mode.PRESENTATION)
+
         # Always move cursor when hand detected (for laser pointer)
         if gesture in ("pointing", "idle", "open_palm"):
-            self._cursor.move_cursor(nx, ny)
+            if gmap.get("pointing") == "move_cursor":
+                self._cursor.move_cursor(nx, ny)
 
-        # Swipe right → next slide
+        # Swipe → slides
         swipe = self._detect_swipe_horizontal()
-        if swipe == "right":
+        if swipe == "right" and gmap.get("swipe_right"):
             pyautogui.press("right", _pause=False)
             return "Next Slide"
-        if swipe == "left":
+        if swipe == "left" and gmap.get("swipe_left"):
             pyautogui.press("left", _pause=False)
             return "Prev Slide"
 
-        # Open palm held 1s → toggle fullscreen (F5)
-        if gesture == "open_palm":
+        # Open palm held → fullscreen
+        if gesture == "open_palm" and gmap.get("open_palm"):
             action = self._check_hold("open_palm", get_value("HOLD_OPEN_PALM_FULLSCREEN"), now)
             if action:
                 pyautogui.press("f5", _pause=False)
@@ -166,8 +201,8 @@ class GestureEngine:
             if self._hold_gesture == "open_palm":
                 self._reset_holds()
 
-        # Pinch held 1.5s → laser pointer mode
-        if gesture == "pinch":
+        # Pinch held → laser pointer
+        if gesture == "pinch" and gmap.get("pinch"):
             self._cursor.move_cursor(nx, ny)
             action = self._check_hold("pinch", get_value("HOLD_PINCH_LASER"), now)
             if action:
@@ -188,17 +223,19 @@ class GestureEngine:
     # ------------------------------------------------------------------
 
     def _media(self, state, gesture, nx, ny, now) -> str | None:
-        # Swipe right/left → next/prev track
+        gmap = _get_gesture_map(Mode.MEDIA)
+
+        # Swipe → tracks
         swipe = self._detect_swipe_horizontal()
-        if swipe == "right":
+        if swipe == "right" and gmap.get("swipe_right"):
             pyautogui.press("nexttrack", _pause=False)
             return "Next Track"
-        if swipe == "left":
+        if swipe == "left" and gmap.get("swipe_left"):
             pyautogui.press("prevtrack", _pause=False)
             return "Prev Track"
 
         # Pinch → play/pause
-        if gesture == "pinch":
+        if gesture == "pinch" and gmap.get("pinch"):
             action = self._check_hold("pinch_media", 0.3, now)
             if action:
                 pyautogui.press("playpause", _pause=False)
@@ -208,18 +245,18 @@ class GestureEngine:
                 self._reset_holds()
 
         # Open palm + vertical motion → volume
-        if gesture == "open_palm":
+        if gesture == "open_palm" and gmap.get("open_palm"):
             if self._last_vol_y is not None:
                 delta = ny - self._last_vol_y
                 if abs(delta) > 0.02:
                     presses = int(abs(delta) * get_value("VOLUME_SENSITIVITY"))
                     presses = max(1, min(presses, get_value("MAX_VOLUME_PRESSES")))
-                    if delta < 0:  # hand moving up → volume up
+                    if delta < 0:
                         for _ in range(presses):
                             pyautogui.press("volumeup", _pause=False)
                         self._last_vol_y = ny
                         return "Volume Up"
-                    else:  # hand moving down → volume down
+                    else:
                         for _ in range(presses):
                             pyautogui.press("volumedown", _pause=False)
                         self._last_vol_y = ny

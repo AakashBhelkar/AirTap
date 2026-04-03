@@ -75,6 +75,34 @@ HOTKEY_MEDIA = "ctrl+shift+m"
 HOTKEY_DISABLE = "ctrl+shift+x"
 HOTKEY_OVERLAY = "ctrl+shift+o"
 
+# Gesture-to-action mapping per mode.
+# Keys are gesture names, values are action strings.
+# Set a gesture to None to disable it in that mode.
+GESTURE_MAP_DAILY = {
+    "pointing": "move_cursor",
+    "tap": "left_click",
+    "pinch": "right_click",
+    "two_fingers": "scroll",
+    "open_palm": "show_desktop",
+}
+GESTURE_MAP_PRESENTATION = {
+    "pointing": "move_cursor",
+    "tap": "left_click",
+    "pinch": "laser",
+    "open_palm": "fullscreen",
+    "swipe_right": "next_slide",
+    "swipe_left": "prev_slide",
+}
+GESTURE_MAP_MEDIA = {
+    "pinch": "play_pause",
+    "open_palm": "volume",
+    "swipe_right": "next_track",
+    "swipe_left": "prev_track",
+}
+
+# Sound feedback
+SOUND_ENABLED = False  # set True to enable beep sounds on clicks, mode switches, etc.
+
 # Logging
 LOG_DIR = "~/AirTap/logs"
 MAX_LOG_FILES = 5  # keep the last N log files

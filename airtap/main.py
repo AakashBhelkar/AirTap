@@ -47,6 +47,8 @@ from notifications import (
     notify_voice_command,
 )
 from startup import SystemTray
+from onboarding import is_first_run, run_onboarding, mark_setup_complete
+from tutorial import run_tutorial
 
 
 # Mic status colors (BGR for OpenCV HUD)
@@ -159,6 +161,7 @@ class AirTapApp:
         self._last_action: str | None = None
         self._action_expire = 0.0
         self._pending_calibrate = False
+        self._pending_tutorial = False
 
     def create_overlay(self):
         if self._no_camera:
@@ -173,6 +176,7 @@ class AirTapApp:
             on_calibrate=self._request_calibrate,
             on_quit=self._quit,
             on_toggle_overlay=self._toggle_overlay,
+            on_tutorial=self._request_tutorial if not self._no_camera else None,
         )
 
     # ------------------------------------------------------------------
@@ -198,6 +202,10 @@ class AirTapApp:
             self._request_calibrate()
         elif action_key == "screenshot":
             self._take_screenshot()
+
+    def _request_tutorial(self):
+        """Flag tutorial to run on next tick (must run on main thread)."""
+        self._pending_tutorial = True
 
     def _request_calibrate(self):
         """Flag calibration to run on next tick (must run on main thread)."""
@@ -258,6 +266,12 @@ class AirTapApp:
     # ------------------------------------------------------------------
 
     def tick(self):
+        # Pending tutorial
+        if self._pending_tutorial and not self._no_camera:
+            self._pending_tutorial = False
+            run_tutorial(self._tracker)
+            return
+
         # Pending calibration
         if self._pending_calibrate and not self._no_camera:
             self._pending_calibrate = False
@@ -390,6 +404,11 @@ def main():
         print(f"[AirTap] {e}")
         print("[AirTap] Running in keyboard/voice-only mode (no hand tracking).")
 
+    # --- First-run onboarding ---
+    if tracker is not None and is_first_run():
+        print("[AirTap] First run detected — starting onboarding...")
+        run_onboarding(tracker)
+
     # --- Calibration ---
     matrix = None
     if tracker is not None:
@@ -401,6 +420,7 @@ def main():
                 print("[AirTap] Calibration failed — cannot continue without calibration.")
                 tracker.stop()
                 sys.exit(1)
+            mark_setup_complete()
             print("[AirTap] Calibration complete.")
         else:
             print("[AirTap] Loaded existing calibration.")

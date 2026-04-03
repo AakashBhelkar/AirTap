@@ -4,6 +4,7 @@ from enum import Enum
 import keyboard
 
 from config import HOTKEY_DAILY, HOTKEY_PRESENTATION, HOTKEY_MEDIA, HOTKEY_DISABLE
+from sounds import sound_mode_switch
 
 
 class Mode(Enum):
@@ -46,6 +47,7 @@ class ModeManager:
                 self._last_active_mode = old
             self._mode = mode
             print(f"[AirTap] Mode → {mode.value}")
+            sound_mode_switch()
             for cb in self._on_switch:
                 try:
                     cb(old, mode)

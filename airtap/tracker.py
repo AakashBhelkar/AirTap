@@ -43,7 +43,7 @@ class HandTracker:
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
             running_mode=vision.RunningMode.VIDEO,
-            num_hands=1,
+            num_hands=2,
             min_hand_detection_confidence=0.7,
             min_tracking_confidence=0.6,
         )
@@ -131,6 +131,10 @@ class HandTracker:
             "fingers_up": [False, False, False, False, False],
             "gesture": "idle",
             "detected": False,
+            # Secondary hand (modifier)
+            "second_hand_detected": False,
+            "second_hand_gesture": "idle",
+            "modifier": None,  # "shift", "ctrl", etc. based on second hand
         }
 
     def _loop(self):
@@ -163,6 +167,7 @@ class HandTracker:
             result = self._landmarker.detect_for_video(mp_image, self._frame_timestamp_ms)
 
             if result.hand_landmarks:
+                # Primary hand (first detected — used for cursor/gestures)
                 hand = result.hand_landmarks[0]
                 lm = [(p.x, p.y, p.z) for p in hand]
                 index_tip = (lm[INDEX_TIP][0], lm[INDEX_TIP][1])
@@ -175,7 +180,22 @@ class HandTracker:
                     "fingers_up": fingers,
                     "gesture": gesture,
                     "detected": True,
+                    "second_hand_detected": False,
+                    "second_hand_gesture": "idle",
+                    "modifier": None,
                 }
+
+                # Secondary hand — acts as modifier
+                if len(result.hand_landmarks) >= 2:
+                    hand2 = result.hand_landmarks[1]
+                    lm2 = [(p.x, p.y, p.z) for p in hand2]
+                    fingers2 = self._fingers_up(lm2)
+                    gesture2 = self._classify_second_hand(fingers2)
+                    modifier = self._resolve_modifier(gesture2)
+
+                    state["second_hand_detected"] = True
+                    state["second_hand_gesture"] = gesture2
+                    state["modifier"] = modifier
             else:
                 state = self._empty_state()
                 self._y_history.clear()
@@ -252,3 +272,25 @@ class HandTracker:
             return "pointing"
 
         return "idle"
+
+    def _classify_second_hand(self, fingers: list[bool]) -> str:
+        """Classify the second hand gesture (used as modifier only)."""
+        if all(fingers):
+            return "open_palm"
+        if fingers[1] and not fingers[2] and not fingers[3] and not fingers[4]:
+            return "pointing"
+        # Fist = all fingers down
+        if not any(fingers):
+            return "fist"
+        return "idle"
+
+    @staticmethod
+    def _resolve_modifier(gesture: str) -> str | None:
+        """Map second-hand gesture to a modifier key name."""
+        if gesture == "open_palm":
+            return "shift"      # open palm = shift modifier
+        if gesture == "fist":
+            return "ctrl"       # fist = ctrl modifier
+        if gesture == "pointing":
+            return "alt"        # pointing = alt modifier
+        return None
