@@ -4,12 +4,13 @@ import os
 import sys
 
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QAction
-from PyQt6.QtCore import QSize
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QAction, QPen
+from PyQt6.QtCore import QSize, Qt
 
 from mode_manager import Mode
 from settings_ui import SettingsDialog
 from profiles import list_profiles, save_profile, load_profile
+from updater import check_for_updates, open_release_page, APP_VERSION
 
 # Registry path for Windows auto-start
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -26,21 +27,43 @@ _MODE_ICON_COLORS = {
 
 
 def _make_tray_icon(mode: Mode = Mode.DAILY) -> QIcon:
-    """Generate a colored icon reflecting the active mode."""
+    """Generate a styled icon with a pointing-finger design reflecting the active mode."""
+    from PyQt6.QtGui import QFont, QPainterPath, QLinearGradient
+    from PyQt6.QtCore import QPointF
+
     size = 64
     color = _MODE_ICON_COLORS.get(mode, QColor(0, 200, 255))
     px = QPixmap(QSize(size, size))
     px.fill(QColor(0, 0, 0, 0))
     p = QPainter(px)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    p.setBrush(color)
-    p.setPen(QColor(255, 255, 255))
-    p.drawEllipse(4, 4, size - 8, size - 8)
-    p.setPen(QColor(0, 0, 0))
-    from PyQt6.QtGui import QFont
-    font = QFont("Segoe UI", 22, QFont.Weight.Bold)
-    p.setFont(font)
-    p.drawText(px.rect(), 0x0084, "AT")  # AlignCenter
+
+    # Gradient background circle
+    gradient = QLinearGradient(QPointF(0, 0), QPointF(size, size))
+    gradient.setColorAt(0, color.lighter(130))
+    gradient.setColorAt(1, color.darker(130))
+    p.setBrush(gradient)
+    p.setPen(QPen(QColor(255, 255, 255, 180), 2))
+    p.drawEllipse(3, 3, size - 6, size - 6)
+
+    # Draw a pointing finger icon (simplified hand with index finger up)
+    finger = QPainterPath()
+    # Palm base
+    finger.addRoundedRect(20.0, 34.0, 24.0, 20.0, 4.0, 4.0)
+    # Index finger (pointing up)
+    finger.addRoundedRect(26.0, 10.0, 8.0, 28.0, 4.0, 4.0)
+    # Thumb (to the left)
+    finger.addRoundedRect(14.0, 32.0, 12.0, 8.0, 3.0, 3.0)
+
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(255, 255, 255, 220))
+    p.drawPath(finger)
+
+    # Small tap ripple circle at fingertip
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.setPen(QPen(QColor(255, 255, 255, 120), 1.5))
+    p.drawEllipse(24, 4, 16, 16)
+
     p.end()
     return QIcon(px)
 
@@ -124,12 +147,21 @@ class SystemTray:
 
         menu.addSeparator()
 
+        # Check for updates
+        self._update_action = QAction(f"Check for Updates (v{APP_VERSION})")
+        self._update_action.triggered.connect(self._check_updates)
+        menu.addAction(self._update_action)
+
         # Quit
         quit_action = QAction("Quit")
         quit_action.triggered.connect(self._on_quit)
         menu.addAction(quit_action)
 
         self._tray.setContextMenu(menu)
+
+        # Background update check on startup
+        self._latest_release_url = ""
+        check_for_updates(callback=self._on_update_result)
 
     def _rebuild_profiles_menu(self):
         """Rebuild the profiles submenu with current saved profiles."""
@@ -180,6 +212,24 @@ class SystemTray:
         else:
             _disable_startup()
             print("[AirTap] Removed from Windows startup")
+
+    def _check_updates(self):
+        """Manual update check from tray menu."""
+        check_for_updates(callback=self._on_update_result)
+
+    def _on_update_result(self, has_update: bool, latest_version: str, download_url: str):
+        """Callback from update checker."""
+        self._latest_release_url = download_url
+        if has_update:
+            self._update_action.setText(f"Update Available: {latest_version}")
+            self._tray.showMessage(
+                "AirTap Update",
+                f"Version {latest_version} is available. Click 'Check for Updates' in tray to download.",
+                QSystemTrayIcon.MessageIcon.Information,
+                5000,
+            )
+        else:
+            self._update_action.setText(f"Up to Date (v{APP_VERSION})")
 
     def show_message(self, title: str, message: str):
         self._tray.showMessage(title, message, QSystemTrayIcon.MessageIcon.Information, 2000)
