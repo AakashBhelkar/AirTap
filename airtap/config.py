@@ -1,5 +1,25 @@
 """AirTap configuration — all tunable values in one place."""
 
+import threading
+
+# Lock for thread-safe reads/writes of config values at runtime.
+# Settings UI calls set_value() on the main thread; tracker/gesture threads
+# call get_value() to read. Simple module-level attributes remain for
+# startup/import-time reads (before threads start).
+_lock = threading.Lock()
+
+
+def get_value(name: str):
+    """Thread-safe read of a config value."""
+    with _lock:
+        return globals()[name]
+
+
+def set_value(name: str, value):
+    """Thread-safe write of a config value."""
+    with _lock:
+        globals()[name] = value
+
 # Webcam
 # Set to a specific source (integer index or DroidCam URL) to skip auto-detection,
 # or leave as None to automatically find the first available camera.

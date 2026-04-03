@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-import config
+from config import get_value, set_value
 
 
 class _SliderRow:
@@ -17,12 +17,13 @@ class _SliderRow:
         self.step = step
         self.min_val = min_val
 
+        current = get_value(attr)
         self.label = QLabel(label)
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setMinimum(0)
         self.slider.setMaximum(int((max_val - min_val) / step))
-        self.slider.setValue(int((getattr(config, attr) - min_val) / step))
-        self.value_label = QLabel(f"{getattr(config, attr):.2f}")
+        self.slider.setValue(int((current - min_val) / step))
+        self.value_label = QLabel(f"{current:.2f}")
         self.value_label.setMinimumWidth(50)
 
         self.slider.valueChanged.connect(self._on_change)
@@ -33,7 +34,7 @@ class _SliderRow:
 
     def apply(self):
         val = self.min_val + self.slider.value() * self.step
-        setattr(config, self.attr, val)
+        set_value(self.attr, val)
 
 
 class SettingsDialog(QDialog):
@@ -139,7 +140,7 @@ class SettingsDialog(QDialog):
         for row in self._rows:
             if row.attr in defaults:
                 val = defaults[row.attr]
-                setattr(config, row.attr, val)
+                set_value(row.attr, val)
                 pos = int((val - row.min_val) / row.step)
                 row.slider.setValue(pos)
                 row.value_label.setText(f"{val:.2f}")

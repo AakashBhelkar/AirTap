@@ -15,8 +15,7 @@ from config import (
     WEBCAM_SOURCE,
     CAMERA_WIDTH,
     CAMERA_HEIGHT,
-    TAP_VELOCITY_THRESHOLD,
-    PINCH_DISTANCE_THRESHOLD,
+    get_value,
 )
 
 # Path to the hand landmarker model (sits next to this file)
@@ -214,7 +213,7 @@ class HandTracker:
             lm[THUMB_TIP][0] - lm[INDEX_TIP][0],
             lm[THUMB_TIP][1] - lm[INDEX_TIP][1],
         )
-        if dist < PINCH_DISTANCE_THRESHOLD:
+        if dist < get_value("PINCH_DISTANCE_THRESHOLD"):
             return "pinch"
 
         # Tap: rapid downward then upward motion of index tip
@@ -234,7 +233,8 @@ class HandTracker:
                 # Look for a positive spike (down) followed by negative (up)
                 max_v = max(velocities)
                 min_v = min(velocities)
-                if max_v > TAP_VELOCITY_THRESHOLD and min_v < -TAP_VELOCITY_THRESHOLD:
+                tap_thresh = get_value("TAP_VELOCITY_THRESHOLD")
+                if max_v > tap_thresh and min_v < -tap_thresh:
                     self._tap_cooldown = now
                     self._y_history.clear()
                     return "tap"

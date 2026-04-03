@@ -211,12 +211,19 @@ class AirTapApp:
         print("[AirTap] Re-calibrating...")
         if self._overlay_visible:
             self._overlay.hide()
-        self._matrix = calibrate(self._tracker)
+
+        new_matrix = calibrate(self._tracker)
+        if new_matrix is None:
+            print("[AirTap] Calibration cancelled — keeping previous calibration.")
+            if self._overlay_visible and self._overlay:
+                self._overlay.show()
+            return
+
+        self._matrix = new_matrix
         self._cursor = CursorController(self._matrix)
         self._engine = GestureEngine(self._cursor)
-        if self._overlay_visible:
-            self._overlay._cursor = self._cursor
-            self._overlay._engine = self._engine
+        if self._overlay_visible and self._overlay:
+            self._overlay.update_subsystems(self._cursor, self._engine)
             self._overlay.show()
         notify_calibration_complete()
         print("[AirTap] Calibration complete.")

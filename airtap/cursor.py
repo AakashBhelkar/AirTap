@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import pyautogui
 
-from config import SMOOTHING_ALPHA, CLICK_COOLDOWN, SCROLL_SENSITIVITY, CURSOR_DEAD_ZONE
+from config import get_value
 
 # Disable pyautogui's built-in pause and fail-safe for responsiveness
 pyautogui.PAUSE = 0
@@ -63,17 +63,18 @@ class CursorController:
         sy = max(self._virt_y + 5, min(sy, self._virt_y + self._virt_h - 6))
 
         # Exponential moving average for smoothing
+        alpha = get_value("SMOOTHING_ALPHA")
         if self._smooth_x is None:
             self._smooth_x, self._smooth_y = sx, sy
         else:
-            self._smooth_x += SMOOTHING_ALPHA * (sx - self._smooth_x)
-            self._smooth_y += SMOOTHING_ALPHA * (sy - self._smooth_y)
+            self._smooth_x += alpha * (sx - self._smooth_x)
+            self._smooth_y += alpha * (sy - self._smooth_y)
 
         # Dead zone — skip tiny jittery movements
         cur_x, cur_y = pyautogui.position()
         dx = abs(int(self._smooth_x) - cur_x)
         dy = abs(int(self._smooth_y) - cur_y)
-        if dx < CURSOR_DEAD_ZONE and dy < CURSOR_DEAD_ZONE:
+        if dx < get_value("CURSOR_DEAD_ZONE") and dy < get_value("CURSOR_DEAD_ZONE"):
             return
 
         pyautogui.moveTo(int(self._smooth_x), int(self._smooth_y), _pause=False)
@@ -81,7 +82,7 @@ class CursorController:
     def do_click(self) -> bool:
         """Perform a left click if cooldown has elapsed. Returns True if clicked."""
         now = time.time()
-        if now - self._last_click < CLICK_COOLDOWN:
+        if now - self._last_click < get_value("CLICK_COOLDOWN"):
             return False
         self._last_click = now
         pyautogui.click(_pause=False)
@@ -90,7 +91,7 @@ class CursorController:
     def do_right_click(self) -> bool:
         """Perform a right click if cooldown has elapsed."""
         now = time.time()
-        if now - self._last_click < CLICK_COOLDOWN:
+        if now - self._last_click < get_value("CLICK_COOLDOWN"):
             return False
         self._last_click = now
         pyautogui.rightClick(_pause=False)
@@ -98,7 +99,7 @@ class CursorController:
 
     def do_scroll(self, delta_y: float):
         """Scroll by a normalized vertical delta (negative = up, positive = down)."""
-        self._scroll_accum += -delta_y * SCROLL_SENSITIVITY
+        self._scroll_accum += -delta_y * get_value("SCROLL_SENSITIVITY")
         clicks = int(self._scroll_accum)
         if clicks != 0:
             pyautogui.scroll(clicks, _pause=False)
@@ -106,4 +107,4 @@ class CursorController:
 
     @property
     def click_ready(self) -> bool:
-        return time.time() - self._last_click >= CLICK_COOLDOWN
+        return time.time() - self._last_click >= get_value("CLICK_COOLDOWN")

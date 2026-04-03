@@ -6,14 +6,9 @@ from collections import deque
 import pyautogui
 
 from config import (
-    SWIPE_MIN_DISTANCE,
-    SWIPE_TIME_WINDOW,
     GESTURE_HISTORY_SIZE,
-    HOLD_OPEN_PALM_FULLSCREEN,
-    HOLD_PINCH_LASER,
-    HOLD_PINCH_RIGHT_CLICK,
-    VOLUME_SENSITIVITY,
-    MAX_VOLUME_PRESSES,
+    SWIPE_TIME_WINDOW,
+    get_value,
 )
 from mode_manager import Mode
 from cursor import CursorController
@@ -112,7 +107,7 @@ class GestureEngine:
 
         # Pinch held 0.8s → right click
         if gesture == "pinch":
-            action = self._check_hold("pinch", HOLD_PINCH_RIGHT_CLICK, now)
+            action = self._check_hold("pinch", get_value("HOLD_PINCH_RIGHT_CLICK"), now)
             if action:
                 if self._cursor.do_right_click():
                     return "Right Click"
@@ -163,7 +158,7 @@ class GestureEngine:
 
         # Open palm held 1s → toggle fullscreen (F5)
         if gesture == "open_palm":
-            action = self._check_hold("open_palm", HOLD_OPEN_PALM_FULLSCREEN, now)
+            action = self._check_hold("open_palm", get_value("HOLD_OPEN_PALM_FULLSCREEN"), now)
             if action:
                 pyautogui.press("f5", _pause=False)
                 return "Toggle Fullscreen"
@@ -174,7 +169,7 @@ class GestureEngine:
         # Pinch held 1.5s → laser pointer mode
         if gesture == "pinch":
             self._cursor.move_cursor(nx, ny)
-            action = self._check_hold("pinch", HOLD_PINCH_LASER, now)
+            action = self._check_hold("pinch", get_value("HOLD_PINCH_LASER"), now)
             if action:
                 self.laser_active = True
                 return "Laser ON"
@@ -217,8 +212,8 @@ class GestureEngine:
             if self._last_vol_y is not None:
                 delta = ny - self._last_vol_y
                 if abs(delta) > 0.02:
-                    presses = int(abs(delta) * VOLUME_SENSITIVITY)
-                    presses = max(1, min(presses, MAX_VOLUME_PRESSES))
+                    presses = int(abs(delta) * get_value("VOLUME_SENSITIVITY"))
+                    presses = max(1, min(presses, get_value("MAX_VOLUME_PRESSES")))
                     if delta < 0:  # hand moving up → volume up
                         for _ in range(presses):
                             pyautogui.press("volumeup", _pause=False)
@@ -261,7 +256,7 @@ class GestureEngine:
         x_end = points[-1][1]
         dx = x_end - x_start
 
-        if abs(dx) >= SWIPE_MIN_DISTANCE:
+        if abs(dx) >= get_value("SWIPE_MIN_DISTANCE"):
             self._last_swipe_time = now
             self._history.clear()
             return "right" if dx > 0 else "left"
@@ -289,7 +284,7 @@ class GestureEngine:
         y_end = points[-1][1]
         dy = y_end - y_start
 
-        if abs(dy) >= SWIPE_MIN_DISTANCE:
+        if abs(dy) >= get_value("SWIPE_MIN_DISTANCE"):
             self._last_swipe_time = now
             self._history.clear()
             return "down" if dy > 0 else "up"

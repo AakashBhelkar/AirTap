@@ -70,6 +70,11 @@ class Overlay(QWidget):
     # Public API — called from main loop to push state
     # ------------------------------------------------------------------
 
+    def update_subsystems(self, cursor_ctrl, gesture_engine):
+        """Update internal references after re-calibration."""
+        self._cursor = cursor_ctrl
+        self._engine = gesture_engine
+
     def push_state(self, hand_state: dict, cursor_pos: tuple, gesture: str, action: str | None):
         self._hand_state = hand_state
         self._cursor_pos = cursor_pos
