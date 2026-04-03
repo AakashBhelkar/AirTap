@@ -35,14 +35,9 @@ class HandTracker:
     """Captures webcam frames and produces hand-state dicts."""
 
     def __init__(self):
-        self.cap = cv2.VideoCapture(WEBCAM_SOURCE)
+        self.cap = self._open_camera()
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-        if not self.cap.isOpened():
-            raise RuntimeError(
-                f"Cannot open camera source: {WEBCAM_SOURCE!r}. "
-                "Check WEBCAM_SOURCE in config.py."
-            )
 
         # New MediaPipe Tasks API — VIDEO mode for sequential frame processing
         base_options = mp_python.BaseOptions(model_asset_path=_MODEL_PATH)
@@ -64,6 +59,31 @@ class HandTracker:
         # For tap detection: keep recent index-tip y positions with timestamps
         self._y_history: deque = deque(maxlen=10)
         self._tap_cooldown = 0.0
+
+    @staticmethod
+    def _open_camera() -> cv2.VideoCapture:
+        """Open a camera: use WEBCAM_SOURCE if set, otherwise auto-detect."""
+        if WEBCAM_SOURCE is not None:
+            cap = cv2.VideoCapture(WEBCAM_SOURCE)
+            if cap.isOpened():
+                print(f"[AirTap] Opened configured camera: {WEBCAM_SOURCE!r}")
+                return cap
+            cap.release()
+            print(f"[AirTap] Configured source {WEBCAM_SOURCE!r} unavailable, scanning...")
+
+        # Auto-detect: try indices 0–4
+        for idx in range(5):
+            cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+            if cap.isOpened():
+                ret, _ = cap.read()
+                if ret:
+                    print(f"[AirTap] Auto-detected camera at index {idx}")
+                    return cap
+            cap.release()
+
+        raise RuntimeError(
+            "No camera found. Connect a camera or set WEBCAM_SOURCE in config.py."
+        )
 
     # ------------------------------------------------------------------
     # Public API

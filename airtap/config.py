@@ -1,9 +1,9 @@
 """AirTap configuration — all tunable values in one place."""
 
 # Webcam
-# Use an integer index (0, 1, 2...) for USB/built-in cameras,
-# or a DroidCam URL like "http://192.168.X.X:4747/video" for IP cameras.
-WEBCAM_SOURCE = "http://192.168.1.14:4747/video"
+# Set to a specific source (integer index or DroidCam URL) to skip auto-detection,
+# or leave as None to automatically find the first available camera.
+WEBCAM_SOURCE = None
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
 
