@@ -13,6 +13,7 @@ from config import (
     HOLD_PINCH_LASER,
     HOLD_PINCH_RIGHT_CLICK,
     VOLUME_SENSITIVITY,
+    MAX_VOLUME_PRESSES,
 )
 from mode_manager import Mode
 from cursor import CursorController
@@ -217,7 +218,7 @@ class GestureEngine:
                 delta = ny - self._last_vol_y
                 if abs(delta) > 0.02:
                     presses = int(abs(delta) * VOLUME_SENSITIVITY)
-                    presses = max(1, presses)
+                    presses = max(1, min(presses, MAX_VOLUME_PRESSES))
                     if delta < 0:  # hand moving up → volume up
                         for _ in range(presses):
                             pyautogui.press("volumeup", _pause=False)

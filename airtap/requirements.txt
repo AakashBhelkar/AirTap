@@ -8,3 +8,4 @@ SpeechRecognition>=3.10.1
 vosk>=0.3.45
 plyer>=2.1.0
 pywin32>=306
+requests>=2.31.0

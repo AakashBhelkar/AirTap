@@ -19,8 +19,11 @@ def _screen_size():
     return pyautogui.size()
 
 
-def calibrate(tracker: HandTracker) -> np.ndarray:
-    """Run the 4-corner calibration and return the 3×3 perspective matrix."""
+def calibrate(tracker: HandTracker) -> np.ndarray | None:
+    """Run the 4-corner calibration and return the 3×3 perspective matrix.
+
+    Returns None if the user aborts and no previous calibration exists.
+    """
     sw, sh = _screen_size()
 
     # Target screen corners (with padding)
@@ -139,7 +142,13 @@ def calibrate(tracker: HandTracker) -> np.ndarray:
             key = cv2.waitKey(30) & 0xFF
             if key in (27, ord("q")):  # ESC / Q to abort
                 cv2.destroyWindow(window_name)
-                sys.exit(0)
+                # Try to load a previous calibration instead of exiting
+                prev = load_calibration()
+                if prev is not None:
+                    print("[AirTap] Calibration cancelled — using previous calibration.")
+                    return prev
+                print("[AirTap] Calibration cancelled — no previous calibration found, retrying...")
+                return calibrate(tracker)
 
     cv2.destroyWindow(window_name)
 
@@ -147,6 +156,13 @@ def calibrate(tracker: HandTracker) -> np.ndarray:
     src = np.array(collected_cam, dtype=np.float32)
     dst = np.array(corners_screen, dtype=np.float32)
     matrix = cv2.getPerspectiveTransform(src, dst)
+
+    # Validate — a degenerate matrix (e.g. collinear points) will have near-zero determinant
+    det = np.linalg.det(matrix)
+    if abs(det) < 1e-6 or not np.isfinite(matrix).all():
+        print("[AirTap] WARNING: Calibration produced an invalid matrix. Please recalibrate.")
+        print("[AirTap] Tip: point at each corner carefully and keep your hand steady.")
+        return calibrate(tracker)  # retry automatically
 
     # Save to disk
     save_calibration(matrix, collected_cam, corners_screen)

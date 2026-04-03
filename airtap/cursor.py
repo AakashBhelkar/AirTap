@@ -1,5 +1,6 @@
 """Cursor control — maps normalised hand coordinates to screen via perspective transform."""
 
+import ctypes
 import time
 
 import cv2
@@ -13,12 +14,36 @@ pyautogui.PAUSE = 0
 pyautogui.FAILSAFE = True  # move mouse to corner to kill
 
 
+def _virtual_screen_bounds() -> tuple[int, int, int, int]:
+    """Return (x, y, width, height) of the full virtual screen across all monitors."""
+    try:
+        user32 = ctypes.windll.user32
+        x = user32.GetSystemMetrics(76)   # SM_XVIRTUALSCREEN
+        y = user32.GetSystemMetrics(77)   # SM_YVIRTUALSCREEN
+        w = user32.GetSystemMetrics(78)   # SM_CXVIRTUALSCREEN
+        h = user32.GetSystemMetrics(79)   # SM_CYVIRTUALSCREEN
+        if w > 0 and h > 0:
+            return (x, y, w, h)
+    except (AttributeError, OSError):
+        pass
+    # Fallback to primary monitor
+    sw, sh = pyautogui.size()
+    return (0, 0, sw, sh)
+
+
 class CursorController:
     def __init__(self, matrix: np.ndarray):
         self._matrix = matrix
         self._smooth_x: float | None = None
         self._smooth_y: float | None = None
         self._last_click = 0.0
+        # Use full virtual screen so cursor works across all monitors
+        vx, vy, vw, vh = _virtual_screen_bounds()
+        self._virt_x = vx
+        self._virt_y = vy
+        self._virt_w = vw
+        self._virt_h = vh
+        # Primary monitor size (used by calibration mapping)
         self._sw, self._sh = pyautogui.size()
         self._scroll_accum: float = 0.0
 
@@ -27,11 +52,15 @@ class CursorController:
         # Apply perspective transform
         pt = np.array([[[norm_x, norm_y]]], dtype=np.float32)
         transformed = cv2.perspectiveTransform(pt, self._matrix)
-        sx, sy = transformed[0][0]
+        sx, sy = float(transformed[0][0][0]), float(transformed[0][0][1])
 
-        # Clamp to screen bounds (keep 5px margin to avoid pyautogui failsafe)
-        sx = max(5, min(sx, self._sw - 6))
-        sy = max(5, min(sy, self._sh - 6))
+        # Guard against NaN/Inf from a bad matrix
+        if not (np.isfinite(sx) and np.isfinite(sy)):
+            return
+
+        # Clamp to virtual screen bounds (keep 5px margin to avoid pyautogui failsafe)
+        sx = max(self._virt_x + 5, min(sx, self._virt_x + self._virt_w - 6))
+        sy = max(self._virt_y + 5, min(sy, self._virt_y + self._virt_h - 6))
 
         # Exponential moving average for smoothing
         if self._smooth_x is None:

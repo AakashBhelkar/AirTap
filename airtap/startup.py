@@ -8,6 +8,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QAction
 from PyQt6.QtCore import QSize
 
 from mode_manager import Mode
+from settings_ui import SettingsDialog
 
 # Registry path for Windows auto-start
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -41,6 +42,8 @@ class SystemTray:
         self._on_calibrate = on_calibrate
         self._on_quit = on_quit
         self._on_toggle_overlay = on_toggle_overlay
+
+        self._settings_dialog: SettingsDialog | None = None
 
         self._tray = QSystemTrayIcon(_make_tray_icon())
         self._tray.setToolTip("AirTap — Gesture Controller")
@@ -80,6 +83,11 @@ class SystemTray:
         cal_action.triggered.connect(self._on_calibrate)
         menu.addAction(cal_action)
 
+        # Settings
+        settings_action = QAction("Settings...")
+        settings_action.triggered.connect(self._open_settings)
+        menu.addAction(settings_action)
+
         menu.addSeparator()
 
         # Auto-start
@@ -97,6 +105,11 @@ class SystemTray:
         menu.addAction(quit_action)
 
         self._tray.setContextMenu(menu)
+
+    def _open_settings(self):
+        if self._settings_dialog is None or not self._settings_dialog.isVisible():
+            self._settings_dialog = SettingsDialog()
+            self._settings_dialog.show()
 
     def _toggle_startup(self):
         if self._startup_action.isChecked():

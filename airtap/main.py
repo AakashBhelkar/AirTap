@@ -1,11 +1,22 @@
 """AirTap — touchless hand-gesture controller.  Phase 4 entry point."""
 
 import argparse
+import ctypes
 import os
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+# Enable DPI awareness so screen coordinates match physical pixels on high-DPI displays.
+# Must be called before any GUI/screen-size operations.
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+except (AttributeError, OSError):
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except (AttributeError, OSError):
+        pass
 
 import cv2
 import numpy as np
@@ -14,7 +25,12 @@ import keyboard
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 
-from config import HUD_WIDTH, HUD_HEIGHT, SCREENSHOT_DIR
+import logging
+
+from config import (
+    HUD_WIDTH, HUD_HEIGHT, SCREENSHOT_DIR, LOG_DIR, MAX_LOG_FILES,
+    HOTKEY_DAILY, HOTKEY_PRESENTATION, HOTKEY_MEDIA, HOTKEY_DISABLE, HOTKEY_OVERLAY,
+)
 from tracker import HandTracker
 from calibration import load_calibration, calibrate
 from cursor import CursorController
@@ -51,6 +67,7 @@ def build_hud(
     laser: bool,
     overlay_on: bool,
     mic_status: MicStatus,
+    cam_ok: bool = True,
 ) -> np.ndarray:
     """Render the small status HUD overlay."""
     hud = np.zeros((HUD_HEIGHT, HUD_WIDTH, 3), dtype=np.uint8)
@@ -78,10 +95,15 @@ def build_hud(
     if laser:
         cv2.circle(hud, (x_right - 20, 20), 6, (0, 0, 255), -1)
 
+    # Camera indicator
+    cam_clr = (0, 255, 0) if cam_ok else (0, 0, 255)
+    cv2.circle(hud, (x_right, 68), 5, cam_clr, -1)
+    cv2.putText(hud, "CAM", (x_right - 35, 73), cv2.FONT_HERSHEY_SIMPLEX, 0.35, cam_clr, 1)
+
     # Mic indicator
     mic_clr = _MIC_COLORS[mic_status]
-    cv2.circle(hud, (x_right, 45), 5, mic_clr, -1)
-    cv2.putText(hud, "MIC", (x_right - 35, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.35, mic_clr, 1)
+    cv2.circle(hud, (x_right, 90), 5, mic_clr, -1)
+    cv2.putText(hud, "MIC", (x_right - 35, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.35, mic_clr, 1)
 
     # Overlay indicator
     ov_clr = (0, 255, 0) if overlay_on else (100, 100, 100)
@@ -93,12 +115,17 @@ def build_hud(
 class AirTapApp:
     """Main application — ties all subsystems together."""
 
-    def __init__(self, tracker: HandTracker, matrix):
+    def __init__(self, tracker, matrix, no_voice: bool = False):
         self._tracker = tracker
         self._matrix = matrix
-        self._cursor = CursorController(matrix)
+        self._no_camera = tracker is None or matrix is None
+        if not self._no_camera:
+            self._cursor = CursorController(matrix)
+            self._engine = GestureEngine(self._cursor)
+        else:
+            self._cursor = None
+            self._engine = None
         self._mode_mgr = ModeManager()
-        self._engine = GestureEngine(self._cursor)
 
         # Notifications on mode switch
         self._mode_mgr.on_mode_switch(notify_mode_switch)
@@ -106,12 +133,16 @@ class AirTapApp:
         # Overlay
         self._overlay_visible = False
         self._overlay: Overlay | None = None
-        keyboard.add_hotkey("ctrl+shift+o", self._toggle_overlay)
+        keyboard.add_hotkey(HOTKEY_OVERLAY, self._toggle_overlay)
 
         # Voice listener
-        self._voice = VoiceListener()
-        self._voice.on_command(self._handle_voice_command)
-        self._voice.start()
+        if no_voice:
+            self._voice = VoiceListener(disabled=True)
+            print("[AirTap] Voice commands disabled via --no-voice")
+        else:
+            self._voice = VoiceListener()
+            self._voice.on_command(self._handle_voice_command)
+            self._voice.start()
 
         # System tray
         self._tray: SystemTray | None = None
@@ -130,6 +161,8 @@ class AirTapApp:
         self._pending_calibrate = False
 
     def create_overlay(self):
+        if self._no_camera:
+            return
         self._overlay = Overlay(
             self._tracker, self._cursor, self._mode_mgr, self._engine
         )
@@ -172,6 +205,9 @@ class AirTapApp:
 
     def _run_calibrate(self):
         """Run calibration synchronously on the main thread."""
+        if self._no_camera:
+            print("[AirTap] Cannot calibrate — no camera available")
+            return
         print("[AirTap] Re-calibrating...")
         if self._overlay_visible:
             self._overlay.hide()
@@ -216,22 +252,27 @@ class AirTapApp:
 
     def tick(self):
         # Pending calibration
-        if self._pending_calibrate:
+        if self._pending_calibrate and not self._no_camera:
             self._pending_calibrate = False
             self._run_calibrate()
             return
 
         mode = self._mode_mgr.get_mode()
-        state = self._tracker.get_hand_state()
-        gesture = state["gesture"]
 
-        # Process gestures
+        gesture = "idle"
         action = None
-        if mode != Mode.DISABLED:
-            try:
-                action = self._engine.update(state, mode)
-            except pyautogui.FailSafeException:
-                action = None
+        state = None
+
+        if not self._no_camera:
+            state = self._tracker.get_hand_state()
+            gesture = state["gesture"]
+
+            # Process gestures
+            if mode != Mode.DISABLED:
+                try:
+                    action = self._engine.update(state, mode)
+                except pyautogui.FailSafeException:
+                    action = None
 
         # Track action
         now = time.time()
@@ -248,15 +289,20 @@ class AirTapApp:
         self._prev_time = now
 
         # Push to overlay
-        if self._overlay_visible and self._overlay:
+        if self._overlay_visible and self._overlay and state is not None:
             cursor_pos = pyautogui.position()
             self._overlay.push_state(state, cursor_pos, gesture, self._last_action)
 
         # HUD
+        click_ready = self._cursor.click_ready if self._cursor else False
+        laser_active = self._engine.laser_active if self._engine else False
+        cam_ok = self._tracker.camera_ok if self._tracker else False
+
         hud = build_hud(
             self._fps, gesture, mode, self._last_action,
-            self._cursor.click_ready, self._engine.laser_active,
+            click_ready, laser_active,
             self._overlay_visible, self._voice.status,
+            cam_ok=cam_ok,
         )
         cv2.imshow(self._hud_window, hud)
 
@@ -272,9 +318,51 @@ class AirTapApp:
         if self._tray:
             self._tray.cleanup()
         self._mode_mgr.cleanup()
-        self._tracker.stop()
+        if self._tracker:
+            self._tracker.stop()
         cv2.destroyAllWindows()
         print("[AirTap] Stopped.")
+
+
+def _setup_logging():
+    """Configure logging to write to both console and a timestamped log file."""
+    log_dir = Path(os.path.expanduser(LOG_DIR))
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    log_file = log_dir / f"airtap_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S",
+        handlers=[
+            logging.FileHandler(str(log_file), encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+
+    # Redirect print() output to the logger so existing print statements get logged
+    class _PrintLogger:
+        def __init__(self, logger, stream):
+            self._logger = logger
+            self._stream = stream
+
+        def write(self, msg):
+            msg = msg.rstrip()
+            if msg:
+                self._logger.info(msg)
+
+        def flush(self):
+            self._stream.flush()
+
+    sys.stdout = _PrintLogger(logging.getLogger("airtap"), sys.__stdout__)
+
+    # Clean up old log files
+    log_files = sorted(log_dir.glob("airtap_*.log"), key=lambda p: p.stat().st_mtime)
+    for old in log_files[:-MAX_LOG_FILES]:
+        old.unlink(missing_ok=True)
+
+    logging.info(f"Log file: {log_file}")
 
 
 def main():
@@ -283,34 +371,47 @@ def main():
     parser.add_argument("--no-voice", action="store_true", help="Disable voice commands")
     args = parser.parse_args()
 
+    _setup_logging()
+
     # --- Hand tracker ---
-    tracker = HandTracker()
-    tracker.start()
-    time.sleep(0.5)
+    tracker = None
+    try:
+        tracker = HandTracker()
+        tracker.start()
+        time.sleep(0.5)
+    except RuntimeError as e:
+        print(f"[AirTap] {e}")
+        print("[AirTap] Running in keyboard/voice-only mode (no hand tracking).")
 
     # --- Calibration ---
-    matrix = None if args.recalibrate else load_calibration()
-    if matrix is None:
-        print("[AirTap] Starting calibration...")
-        matrix = calibrate(tracker)
-        print("[AirTap] Calibration complete.")
-    else:
-        print("[AirTap] Loaded existing calibration.")
+    matrix = None
+    if tracker is not None:
+        matrix = None if args.recalibrate else load_calibration()
+        if matrix is None:
+            print("[AirTap] Starting calibration...")
+            matrix = calibrate(tracker)
+            if matrix is None:
+                print("[AirTap] Calibration failed — cannot continue without calibration.")
+                tracker.stop()
+                sys.exit(1)
+            print("[AirTap] Calibration complete.")
+        else:
+            print("[AirTap] Loaded existing calibration.")
 
     # --- Qt application ---
     qt_app = QApplication(sys.argv)
 
     # --- Main app ---
-    app = AirTapApp(tracker, matrix)
+    app = AirTapApp(tracker, matrix, no_voice=args.no_voice)
     app.create_overlay()
     app.create_tray()
 
     print("[AirTap] Running — Phase 4")
-    print("  Ctrl+Shift+D = Daily mode")
-    print("  Ctrl+Shift+P = Presentation mode")
-    print("  Ctrl+Shift+M = Media mode")
-    print("  Ctrl+Shift+X = Disable")
-    print("  Ctrl+Shift+O = Toggle overlay")
+    print(f"  {HOTKEY_DAILY} = Daily mode")
+    print(f"  {HOTKEY_PRESENTATION} = Presentation mode")
+    print(f"  {HOTKEY_MEDIA} = Media mode")
+    print(f"  {HOTKEY_DISABLE} = Disable")
+    print(f"  {HOTKEY_OVERLAY} = Toggle overlay")
     print("  Voice: 'airtap on/off', 'daily/presentation/media mode',")
     print("         'calibrate', 'take screenshot'")
     print("  Q / ESC = Quit")

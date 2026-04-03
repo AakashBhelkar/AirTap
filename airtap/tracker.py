@@ -56,6 +56,11 @@ class HandTracker:
         self._running = False
         self._frame_timestamp_ms = 0
 
+        # Camera health tracking
+        self._consecutive_failures = 0
+        self._camera_ok = True
+        self._FAILURE_THRESHOLD = 30  # ~1 second at 30fps before flagging
+
         # For tap detection: keep recent index-tip y positions with timestamps
         self._y_history: deque = deque(maxlen=10)
         self._tap_cooldown = 0.0
@@ -109,6 +114,12 @@ class HandTracker:
         with self._lock:
             return self._last_frame.copy() if self._last_frame is not None else None
 
+    @property
+    def camera_ok(self) -> bool:
+        """False if the camera has been failing to deliver frames."""
+        with self._lock:
+            return self._camera_ok
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
@@ -127,7 +138,20 @@ class HandTracker:
         while self._running:
             ok, frame = self.cap.read()
             if not ok:
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= self._FAILURE_THRESHOLD:
+                    with self._lock:
+                        if self._camera_ok:
+                            self._camera_ok = False
+                            print("[AirTap] WARNING: Camera stopped delivering frames")
                 continue
+
+            # Camera recovered or still healthy
+            if not self._camera_ok:
+                with self._lock:
+                    self._camera_ok = True
+                print("[AirTap] Camera recovered")
+            self._consecutive_failures = 0
 
             frame = cv2.flip(frame, 1)  # mirror
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

@@ -40,9 +40,21 @@ HOLD_PINCH_RIGHT_CLICK = 0.8  # daily: right click
 # Scroll
 SCROLL_SENSITIVITY = 1200  # pyautogui scroll clicks per normalized-unit of hand movement
 VOLUME_SENSITIVITY = 5  # volume key presses per normalized-unit of hand movement
+MAX_VOLUME_PRESSES = 5  # cap per frame to prevent accidental volume spikes
 
 # Voice
 VOSK_MODEL_NAME = "vosk-model-small-en-us-0.15"
 VOSK_MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
 VOSK_MODEL_DIR = "vosk_models"
 SCREENSHOT_DIR = "~/AirTap/screenshots"
+
+# Keyboard shortcuts (change these to customize hotkeys)
+HOTKEY_DAILY = "ctrl+shift+d"
+HOTKEY_PRESENTATION = "ctrl+shift+p"
+HOTKEY_MEDIA = "ctrl+shift+m"
+HOTKEY_DISABLE = "ctrl+shift+x"
+HOTKEY_OVERLAY = "ctrl+shift+o"
+
+# Logging
+LOG_DIR = "~/AirTap/logs"
+MAX_LOG_FILES = 5  # keep the last N log files

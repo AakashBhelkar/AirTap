@@ -3,6 +3,8 @@
 from enum import Enum
 import keyboard
 
+from config import HOTKEY_DAILY, HOTKEY_PRESENTATION, HOTKEY_MEDIA, HOTKEY_DISABLE
+
 
 class Mode(Enum):
     DAILY = "DAILY"
@@ -28,10 +30,10 @@ class ModeManager:
         self._register_hotkeys()
 
     def _register_hotkeys(self):
-        keyboard.add_hotkey("ctrl+shift+d", lambda: self.switch_mode(Mode.DAILY))
-        keyboard.add_hotkey("ctrl+shift+p", lambda: self.switch_mode(Mode.PRESENTATION))
-        keyboard.add_hotkey("ctrl+shift+m", lambda: self.switch_mode(Mode.MEDIA))
-        keyboard.add_hotkey("ctrl+shift+x", lambda: self.switch_mode(Mode.DISABLED))
+        keyboard.add_hotkey(HOTKEY_DAILY, lambda: self.switch_mode(Mode.DAILY))
+        keyboard.add_hotkey(HOTKEY_PRESENTATION, lambda: self.switch_mode(Mode.PRESENTATION))
+        keyboard.add_hotkey(HOTKEY_MEDIA, lambda: self.switch_mode(Mode.MEDIA))
+        keyboard.add_hotkey(HOTKEY_DISABLE, lambda: self.switch_mode(Mode.DISABLED))
 
     def on_mode_switch(self, callback):
         """Register a callback fn(old_mode, new_mode) for mode changes."""

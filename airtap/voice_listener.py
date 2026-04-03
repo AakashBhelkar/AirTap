@@ -42,21 +42,24 @@ _COMMANDS = {
 class VoiceListener:
     """Background voice command listener with online/offline recognition."""
 
-    def __init__(self):
-        self._recognizer = sr.Recognizer()
-        self._recognizer.energy_threshold = 300
-        self._recognizer.dynamic_energy_threshold = True
-        self._recognizer.pause_threshold = 0.6
-
-        self._mic: sr.Microphone | None = None
-        self._status = MicStatus.DISABLED
+    def __init__(self, disabled: bool = False):
         self._lock = threading.Lock()
         self._running = False
         self._callbacks: list = []  # fn(action_key: str)
+        self._mic: sr.Microphone | None = None
+        self._status = MicStatus.DISABLED
 
         # Vosk fallback
         self._vosk_model = None
         self._use_vosk = False
+
+        if disabled:
+            return
+
+        self._recognizer = sr.Recognizer()
+        self._recognizer.energy_threshold = 300
+        self._recognizer.dynamic_energy_threshold = True
+        self._recognizer.pause_threshold = 0.6
 
         # Try to init microphone
         try:
@@ -218,4 +221,5 @@ class VoiceListener:
                         print(f"[Voice] Callback error: {e}")
                 return
 
-        # No match — ignore
+        # No match — log so users know the mic is hearing them
+        print(f"[Voice] Heard: '{text}' (no matching command)")
